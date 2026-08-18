@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../services/farmer_revenue_service.dart';
+import '../services/order_service.dart';
 import '../services/product_service.dart';
 
 // Body-only widget — renders inside FarmerHomeScreen's Scaffold.
@@ -25,6 +27,40 @@ class _MarketTabState extends State<MarketTab> {
   static const Color _accent = Color(0xFFDCEDC8);
 
   static const int _profileTabIndex = 3;
+  FarmerRevenueView _selectedRevenueView = FarmerRevenueView.monthly;
+
+  Future<void> _refreshMarket() async {
+    await Future.delayed(const Duration(milliseconds: 700));
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  DateTime _parseDateTime(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is String) {
+      try {
+        return DateTime.parse(value);
+      } catch (_) {
+        return DateTime.now();
+      }
+    }
+    return DateTime.now();
+  }
+
+  String _formatCurrency(num value) {
+    final whole = value.round();
+    final s = whole.toString();
+    final buffer = StringBuffer();
+    for (var i = 0; i < s.length; i++) {
+      final indexFromEnd = s.length - i;
+      if (i > 0 && indexFromEnd % 3 == 0) {
+        buffer.write(',');
+      }
+      buffer.write(s[i]);
+    }
+    return '₱$buffer';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -43,17 +79,23 @@ class _MarketTabState extends State<MarketTab> {
         }
         final docs = snapshot.data?.docs ?? [];
 
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
-          children: [
-            _welcomeHeader(name, docs.length),
-            const SizedBox(height: 16),
-            _statRow(docs.length),
-            const SizedBox(height: 16),
-            _salesPerformanceCard(),
-            const SizedBox(height: 16),
-            _reviewsSection(),
-          ],
+        return RefreshIndicator(
+          color: _dark,
+          onRefresh: _refreshMarket,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
+            children: [
+              _welcomeHeader(name, docs.length),
+              const SizedBox(height: 16),
+              _statRow(docs.length),
+              const SizedBox(height: 16),
+              _salesPerformanceCard(),
+              const SizedBox(height: 16),
+              _marketObjectivesCard(),
+              const SizedBox(height: 16),
+              _reviewsSection(user?.uid),
+            ],
+          ),
         );
       },
     );
@@ -151,70 +193,375 @@ class _MarketTabState extends State<MarketTab> {
   }
 
   Widget _salesPerformanceCard() {
-    const months = ['MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT'];
-    const heights = [34.0, 48.0, 30.0, 54.0, 70.0, 44.0];
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 3)),
-        ],
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || uid.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 3)),
+          ],
+        ),
+        child: const Center(child: Text('Login to view sales performance.')),
+      );
+    }
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
+      builder: (context, userSnapshot) {
+        final userData = userSnapshot.data?.data() ?? const <String, dynamic>{};
+        final registeredAt = _parseDateTime(userData['createdAt']);
+        final now = DateTime.now();
+        final effectiveView = FarmerRevenueService.isBeginner(registeredAt: registeredAt, now: now)
+            ? FarmerRevenueView.weekly
+            : _selectedRevenueView;
+
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: OrderService().farmerOrdersStream(),
+          builder: (context, ordersSnapshot) {
+            final orders = (ordersSnapshot.data?.docs ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
+                .map((doc) => Map<String, dynamic>.from(doc.data())..['id'] = doc.id)
+                .toList();
+
+            final bars = FarmerRevenueService.revenueBars(
+              orders: orders,
+              view: effectiveView,
+              now: now,
+            );
+            final maxValue = bars.isEmpty
+                ? 1.0
+                : bars
+                    .map((bar) => (bar['value'] as num).toDouble())
+                    .reduce((a, b) => a > b ? a : b);
+            final totalRevenue = FarmerRevenueService.totalRevenueForRange(
+              orders: orders,
+              view: effectiveView,
+              now: now,
+            );
+
+            return Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 3)),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Sales Performance',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87)),
+                      if (!FarmerRevenueService.isBeginner(registeredAt: registeredAt, now: now))
+                        Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: BoxDecoration(
+                            color: _accent,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            children: [
+                              _viewToggleChip('Week', FarmerRevenueView.weekly),
+                              _viewToggleChip('Month', FarmerRevenueView.monthly),
+                            ],
+                          ),
+                        )
+                      else
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(color: _accent, borderRadius: BorderRadius.circular(20)),
+                          child: const Text('Week',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: _dark)),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    effectiveView == FarmerRevenueView.weekly ? 'Weekly Revenue' : 'Monthly Revenue',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                  Text(
+                    _formatCurrency(totalRevenue),
+                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: _dark),
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    height: 96,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: List.generate(bars.length, (i) {
+                        final value = (bars[i]['value'] as num).toDouble();
+                        final height = maxValue <= 0 ? 0.0 : ((value / maxValue) * 80.0).clamp(8.0, 80.0);
+                        return Column(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Container(
+                              width: 18,
+                              height: height,
+                              decoration: BoxDecoration(
+                                color: value > 0 ? _dark : _accent,
+                                borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              bars[i]['label'].toString(),
+                              style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+                            ),
+                          ],
+                        );
+                      }),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Revenue updates as completed orders come in.',
+                    style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Colors.grey[500]),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _viewToggleChip(String label, FarmerRevenueView view) {
+    final active = _selectedRevenueView == view;
+    return GestureDetector(
+      onTap: () => setState(() => _selectedRevenueView = view),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? _dark : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: active ? Colors.white : _dark,
+          ),
+        ),
       ),
-      child: Column(
+    );
+  }
+
+  Widget _marketObjectivesCard() {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.collection('products').snapshots(),
+      builder: (context, productsSnapshot) {
+        final products = (productsSnapshot.data?.docs ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
+            .map((doc) => Map<String, dynamic>.from(doc.data()))
+            .toList();
+
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
+              .collection('orders')
+              .where('status', isEqualTo: 'completed')
+              .snapshots(),
+          builder: (context, ordersSnapshot) {
+            final orders = (ordersSnapshot.data?.docs ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
+                .map((doc) => Map<String, dynamic>.from(doc.data()))
+                .toList();
+
+            final insight = FarmerRevenueService.marketObjective(
+              products: products,
+              orders: orders,
+              now: DateTime.now(),
+            );
+
+            final avgPrice = (insight['marketAverage'] as num?)?.toDouble() ?? 0.0;
+            final seasonPick = insight['seasonalPick']?.toString() ?? 'Vegetables';
+            final marketPick = insight['marketPick']?.toString() ?? 'Vegetables';
+            final seasonLabel = insight['season']?.toString() ?? 'Season';
+
+            return Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 3)),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Market Objective',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+                  ),
+                  const SizedBox(height: 10),
+                  _objectiveRow(
+                    title: 'Current market average',
+                    value: '₱${avgPrice.toStringAsFixed(0)}/kg',
+                    subtitle: 'Average price across listed products',
+                  ),
+                  const SizedBox(height: 10),
+                  _objectiveRow(
+                    title: 'Best this $seasonLabel',
+                    value: seasonPick,
+                    subtitle: 'Top product by seasonal buyer demand',
+                  ),
+                  const SizedBox(height: 10),
+                  _objectiveRow(
+                    title: 'Marketplace demand',
+                    value: marketPick,
+                    subtitle: 'Most bought product by buyers in the marketplace',
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF3F9EE),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: _accent),
+                    ),
+                    child: Text(
+                      'Suggested focus: sell more $marketPick during the $seasonLabel to match buyer demand and improve turnover.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[700], height: 1.5),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _objectiveRow({
+    required String title,
+    required String value,
+    required String subtitle,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FBF6),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _accent),
+      ),
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Sales Performance',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87)),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(color: _accent, borderRadius: BorderRadius.circular(20)),
-                child: const Text('Month',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: _dark)),
-              ),
-            ],
+          Container(
+            width: 8,
+            height: 8,
+            margin: const EdgeInsets.only(top: 6, right: 10),
+            decoration: const BoxDecoration(color: _dark, shape: BoxShape.circle),
           ),
-          const SizedBox(height: 10),
-          Text('Monthly Revenue', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-          const Text('₱0.00', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: _dark)),
-          const SizedBox(height: 14),
-          SizedBox(
-            height: 96,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: List.generate(months.length, (i) {
-                return Column(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    Container(
-                      width: 18,
-                      height: heights[i],
-                      decoration: BoxDecoration(
-                        color: _accent,
-                        borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(months[i], style: TextStyle(fontSize: 10, color: Colors.grey[500])),
-                  ],
-                );
-              }),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                const SizedBox(height: 4),
+                Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: _dark)),
+                const SizedBox(height: 2),
+                Text(subtitle, style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+              ],
             ),
           ),
-          const SizedBox(height: 8),
-          Text('Revenue updates as orders come in.',
-              style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Colors.grey[500])),
         ],
       ),
     );
   }
 
-  Widget _reviewsSection() {
+  Widget _reviewsSection(String? sellerId) {
+    if (sellerId == null || sellerId.isEmpty) {
+      return _reviewsShell(
+        avgLabel: '-',
+        countLabel: '0',
+        child: _emptyReviewsState(),
+      );
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('productReviews')
+          .where('sellerId', isEqualTo: sellerId)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return _reviewsShell(
+            avgLabel: '-',
+            countLabel: '0',
+            child: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 22),
+              child: Center(child: CircularProgressIndicator(color: _dark)),
+            ),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return _reviewsShell(
+            avgLabel: '-',
+            countLabel: '0',
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Text(
+                'Could not load reviews.',
+                style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+              ),
+            ),
+          );
+        }
+
+        final docs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
+          snapshot.data?.docs ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[],
+        )
+          ..sort((a, b) {
+            final at = a.data()['createdAt'] as Timestamp?;
+            final bt = b.data()['createdAt'] as Timestamp?;
+            final ams = at?.millisecondsSinceEpoch ?? 0;
+            final bms = bt?.millisecondsSinceEpoch ?? 0;
+            return bms.compareTo(ams);
+          });
+
+        if (docs.isEmpty) {
+          return _reviewsShell(
+            avgLabel: '-',
+            countLabel: '0',
+            child: _emptyReviewsState(),
+          );
+        }
+
+        var total = 0.0;
+        for (final d in docs) {
+          final v = d.data()['rating'];
+          total += (v is num) ? v.toDouble() : 0;
+        }
+        final avg = total / docs.length;
+
+        final recent = docs.take(5).toList();
+        return _reviewsShell(
+          avgLabel: avg.toStringAsFixed(1),
+          countLabel: '${docs.length}',
+          child: Column(
+            children: recent.map((doc) => _reviewTile(doc.data())).toList(),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _reviewsShell({
+    required String avgLabel,
+    required String countLabel,
+    required Widget child,
+  }) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -235,31 +582,107 @@ class _MarketTabState extends State<MarketTab> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(color: _accent, borderRadius: BorderRadius.circular(20)),
-                child: Row(
-                  children: const [
-                    Icon(Icons.star, size: 14, color: _dark),
-                    SizedBox(width: 4),
-                    Text('—', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: _dark)),
-                  ],
-                ),
+                child: Row(children: [
+                  const Icon(Icons.star, size: 14, color: _dark),
+                  const SizedBox(width: 4),
+                  Text(avgLabel, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: _dark)),
+                  const SizedBox(width: 6),
+                  Text('($countLabel)', style: const TextStyle(fontSize: 11, color: _dark)),
+                ]),
               ),
             ],
           ),
           const SizedBox(height: 14),
-          Center(
-            child: Column(
-              children: [
-                Icon(Icons.reviews_outlined, size: 40, color: Colors.grey[400]),
-                const SizedBox(height: 8),
-                Text('No reviews yet',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700])),
-                const SizedBox(height: 2),
-                Text("Buyers' reviews of your products will appear here.",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12, color: Colors.grey[500])),
-              ],
-            ),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyReviewsState() {
+    return Center(
+      child: Column(
+        children: [
+          Icon(Icons.reviews_outlined, size: 40, color: Colors.grey[400]),
+          const SizedBox(height: 8),
+          Text('No reviews yet',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700])),
+          const SizedBox(height: 2),
+          Text("Buyers' reviews of your products will appear here.",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+        ],
+      ),
+    );
+  }
+
+  Widget _reviewTile(Map<String, dynamic> review) {
+    final buyer = review['buyerName']?.toString() ?? 'Buyer';
+    final productName = review['productName']?.toString() ?? 'Product';
+    final comment = review['comment']?.toString() ?? '';
+    final rating = (review['rating'] as num?)?.toInt() ?? 0;
+    final imageUrl = review['imageUrl']?.toString() ?? '';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FBF6),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _accent),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  buyer,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87),
+                ),
+              ),
+              Row(
+                children: List.generate(
+                  5,
+                  (i) => Icon(
+                    i < rating ? Icons.star_rounded : Icons.star_border_rounded,
+                    size: 14,
+                    color: i < rating ? Colors.amber : Colors.grey[400],
+                  ),
+                ),
+              ),
+            ],
           ),
+          const SizedBox(height: 4),
+          Text(
+            'Product: $productName',
+            style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+          ),
+          if (comment.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(comment, style: const TextStyle(fontSize: 12.5, color: Colors.black87, height: 1.35)),
+          ],
+          if (imageUrl.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Image.network(
+                imageUrl,
+                height: 110,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  height: 80,
+                  color: _accent,
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.broken_image, color: _dark),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

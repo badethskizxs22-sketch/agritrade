@@ -3,7 +3,7 @@ import '../services/auth_service.dart';
 import 'role_selection_screen.dart';
 import '../widgets/agritrade_text.dart';
 import 'buyer_explore_screen.dart';
-import 'buyer_chat_list_screen.dart';
+import 'chat_list_screen.dart';
 import 'buyer_orders_screen.dart';
 import 'buyer_profile_screen.dart';
 
@@ -63,7 +63,7 @@ class _BuyerMarketplaceScreenState extends State<BuyerMarketplaceScreen> {
   Widget build(BuildContext context) {
     final pages = <Widget>[
       const BuyerExploreScreen(),
-      const BuyerChatListScreen(),
+      const ChatListScreen(),
       const BuyerOrdersScreen(),
       BuyerProfileScreen(onLogout: () => _logout(context)),
     ];

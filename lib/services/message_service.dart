@@ -46,9 +46,8 @@ class MessageService {
   final currentUserId = FirebaseAuth.instance.currentUser!.uid;
   
   // Consistent conversation ID format
-  final conversationId = currentUserId.compareTo(otherUserId) < 0
-      ? '${currentUserId}_$otherUserId'
-      : '${otherUserId}_$currentUserId';
+  // Use your existing helper method to ensure consistency
+  final conversationId = conversationIdFor(currentUserId, otherUserId);
 
   final chatDocRef = FirebaseFirestore.instance.collection('conversations').doc(conversationId);
   
@@ -83,8 +82,7 @@ class MessageService {
     final currentUserId = FirebaseAuth.instance.currentUser!.uid;
     return FirebaseFirestore.instance
         .collection('conversations')
-        .where('participants', arrayContains: currentUserId)
-        .orderBy('lastMessageTime', descending: true)
+      .where('participants', arrayContains: currentUserId)
         .snapshots();
   }
 

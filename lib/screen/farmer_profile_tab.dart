@@ -9,11 +9,22 @@ import 'add_product_screen.dart';
 import 'farmer_edit_profile_screen.dart';
 
 // Body-only widget — renders inside FarmerHomeScreen's Scaffold.
-class ProfileTab extends StatelessWidget {
+class ProfileTab extends StatefulWidget {
   const ProfileTab({super.key});
 
+  @override
+  State<ProfileTab> createState() => _ProfileTabState();
+}
+
+class _ProfileTabState extends State<ProfileTab> {
   static const Color _dark = Color(0xFF1B5E20);
   static const Color _accent = Color(0xFFDCEDC8);
+
+  Future<void> _refreshData() async {
+    await Future.delayed(const Duration(milliseconds: 700));
+    if (!mounted) return;
+    setState(() {});
+  }
 
   Future<void> _handleLogout(BuildContext context) async {
     final confirm = await showDialog<bool>(
@@ -275,56 +286,61 @@ class ProfileTab extends StatelessWidget {
     final user = FirebaseAuth.instance.currentUser;
     final name = user?.displayName ?? 'Farmer';
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.only(bottom: 90),
-      child: Column(
-        children: [
-          // ---- Hamburger menu (top right) — Account Settings / Help / Log Out ----
-          Padding(
-            padding: const EdgeInsets.only(right: 8, top: 4),
-            child: Align(alignment: Alignment.topRight, child: _menuButton(context)),
-          ),
+    return RefreshIndicator(
+      color: _dark,
+      onRefresh: _refreshData,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.only(bottom: 90),
+        child: Column(
+          children: [
+            // ---- Hamburger menu (top right) — Account Settings / Help / Log Out ----
+            Padding(
+              padding: const EdgeInsets.only(right: 8, top: 4),
+              child: Align(alignment: Alignment.topRight, child: _menuButton(context)),
+            ),
 
-          // ---- Avatar with edit badge ----
-          _avatarWithEditBadge(context),
-          const SizedBox(height: 10),
+            // ---- Avatar with edit badge ----
+            _avatarWithEditBadge(context),
+            const SizedBox(height: 10),
 
-          // ---- Name ----
-          Text(name,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87)),
-          const SizedBox(height: 6),
+            // ---- Name ----
+            Text(name,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87)),
+            const SizedBox(height: 6),
 
-          // ---- Location ----
-          StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-            stream: FirebaseFirestore.instance
-                .collection('users')
-                .doc(user?.uid ?? 'unknown')
-                .snapshots(),
-            builder: (context, snap) {
-              final data = snap.data?.data();
-              final barangay = data?['barangay']?.toString();
-              final muni = data?['municipality']?.toString() ?? 'Laurel';
-              final prov = data?['province']?.toString() ?? 'Batangas';
-              final location = (barangay != null && barangay.isNotEmpty)
-                  ? '$barangay, $muni, $prov'
-                  : '$muni, $prov';
-              return Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.location_on_outlined, size: 15, color: Colors.grey[600]),
-                  const SizedBox(width: 4),
-                  Text(location, style: TextStyle(fontSize: 13, color: Colors.grey[600])),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 24),
+            // ---- Location ----
+            StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(user?.uid ?? 'unknown')
+                  .snapshots(),
+              builder: (context, snap) {
+                final data = snap.data?.data();
+                final barangay = data?['barangay']?.toString();
+                final muni = data?['municipality']?.toString() ?? 'Laurel';
+                final prov = data?['province']?.toString() ?? 'Batangas';
+                final location = (barangay != null && barangay.isNotEmpty)
+                    ? '$barangay, $muni, $prov'
+                    : '$muni, $prov';
+                return Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.location_on_outlined, size: 15, color: Colors.grey[600]),
+                    const SizedBox(width: 4),
+                    Text(location, style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 24),
 
-          // ---- My Products ----
-          _myProductsSection(context),
-          const SizedBox(height: 24),
-        ],
+            // ---- My Products ----
+            _myProductsSection(context),
+            const SizedBox(height: 24),
+          ],
+        ),
       ),
     );
   }

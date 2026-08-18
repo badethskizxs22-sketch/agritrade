@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../services/cloudinary_service.dart';
 import '../services/message_service.dart';
 import 'buyer_marketplace_screen.dart';
+import 'place_order_screen.dart';
 
 class MessageOrderScreen extends StatefulWidget {
   final String conversationId; // 1. Add this property
@@ -47,6 +48,7 @@ class _MessageOrderScreenState extends State<MessageOrderScreen> {
   void initState() {
     super.initState();
     _conversationId = widget.conversationId;
+    _messageService.markConversationRead(_conversationId);
   }
 
   @override
@@ -71,39 +73,11 @@ class _MessageOrderScreenState extends State<MessageOrderScreen> {
     if (text.isEmpty) return;
 
     try {
-      final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
-      
-      final convId = await _messageService.startOrGetConversation(
-        otherUserId: widget.farmerId,
-        otherUserName: widget.farmerName,
-        productId: widget.productId,
-        productName: widget.productName,
-        productImageUrl: widget.productImage,
-      );
-
-      // 1. Send the message via your standard message service
       await _messageService.sendMessage(
-        conversationId: convId,
+        conversationId: _conversationId,
         otherUserId: widget.farmerId,
         text: text,
       );
-
-    // Update parent conversation document in 'conversations' collection
-      await FirebaseFirestore.instance.collection('conversations').doc(convId).set({
-        'participants': [currentUserId, widget.farmerId],
-        'participantNames': {
-          currentUserId: 'Buyer',
-          widget.farmerId: widget.farmerName,
-        },
-        'farmerId': widget.farmerId,
-        'farmerName': widget.farmerName,
-        'farmerImage': widget.productImage,
-        'lastMessage': text,
-        'lastMessageTime': FieldValue.serverTimestamp(),
-        'lastSenderId': currentUserId,
-        'unreadBuyerCount': 0,
-        'unreadFarmerCount': FieldValue.increment(1),
-      }, SetOptions(merge: true));
 
       _messageController.clear();
       _scrollToBottom();
@@ -116,6 +90,12 @@ class _MessageOrderScreenState extends State<MessageOrderScreen> {
         ),
       );
     }
+  }
+
+  Future<void> _refreshMessages() async {
+    await Future.delayed(const Duration(milliseconds: 700));
+    if (!mounted) return;
+    setState(() {});
   }
 
   @override
@@ -136,15 +116,18 @@ class _MessageOrderScreenState extends State<MessageOrderScreen> {
             size: 20,
           ),
           onPressed: () {
-            Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(
-            builder: (_) => const BuyerMarketplaceScreen(initialIndex: 1), // Directs straight to Messages tab
-          ),
-          (route) => false,
-        );
-      },
-    ),
+            if (Navigator.of(context).canPop()) {
+              Navigator.pop(context);
+              return;
+            }
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const BuyerMarketplaceScreen(initialIndex: 1),
+              ),
+            );
+          },
+        ),
 
         titleSpacing: 0,
 
@@ -221,43 +204,48 @@ class _MessageOrderScreenState extends State<MessageOrderScreen> {
             const SizedBox(height: 8),
 
             Expanded(
-              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: _messageService.messagesStream(_conversationId),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  if (snapshot.hasError) {
-                    return const Center(child: Text('Unable to load conversation.'));
-                  }
-                  final docs = snapshot.data?.docs ?? [];
-                  if (docs.isEmpty) {
-                    return Center(
-                      child: Text(
-                        'This conversation is empty. Send the first message to start.',
-                        style: TextStyle(color: Colors.grey[600], fontSize: 14),
-                        textAlign: TextAlign.center,
-                      ),
-                    );
-                  }
+              child: RefreshIndicator(
+                color: const Color(0xFF1B5E20),
+                onRefresh: _refreshMessages,
+                child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: _messageService.messagesStream(_conversationId),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (snapshot.hasError) {
+                      return const Center(child: Text('Unable to load conversation.'));
+                    }
+                    final docs = snapshot.data?.docs ?? [];
+                    if (docs.isEmpty) {
+                      return Center(
+                        child: Text(
+                          'This conversation is empty. Send the first message to start.',
+                          style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                          textAlign: TextAlign.center,
+                        ),
+                      );
+                    }
 
-                  return ListView.builder(
-                    controller: _scrollController,
-                    reverse: true, // Required so index 0 stays at the bottom and new messages stack below
-                    padding: const EdgeInsets.fromLTRB(14, 5, 14, 10),
-                    itemCount: docs.length,
-                    itemBuilder: (context, index) {
-                      final data = docs[index].data();
-                      final isMe = data['senderId'] == FirebaseAuth.instance.currentUser!.uid;
-                      final text = data['text']?.toString() ?? '';
-                      final imageUrl = data['imageUrl']?.toString();
-                      
-                      final timestamp = data['createdAt'] as Timestamp?;
-                      
-                      return _buildMessage(text, isMe, timestamp: timestamp, imageUrl: imageUrl);
-                    },
-                  );
-                },
+                    return ListView.builder(
+                      controller: _scrollController,
+                      reverse: true, // Required so index 0 stays at the bottom and new messages stack below
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(14, 5, 14, 10),
+                      itemCount: docs.length,
+                      itemBuilder: (context, index) {
+                        final data = docs[index].data();
+                        final isMe = data['senderId'] == FirebaseAuth.instance.currentUser!.uid;
+                        final text = data['text']?.toString() ?? '';
+                        final imageUrl = data['imageUrl']?.toString();
+                        
+                        final timestamp = data['createdAt'] as Timestamp?;
+                        
+                        return _buildMessage(text, isMe, timestamp: timestamp, imageUrl: imageUrl);
+                      },
+                    );
+                  },
+                ),
               ),
             ),
 
@@ -349,7 +337,7 @@ class _MessageOrderScreenState extends State<MessageOrderScreen> {
             ),
           ),
           ElevatedButton(
-            onPressed: _showOrderDialog,
+            onPressed: _openPlaceOrderScreen,
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF14532D),
               foregroundColor: Colors.white,
@@ -374,6 +362,29 @@ class _MessageOrderScreenState extends State<MessageOrderScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _openPlaceOrderScreen() async {
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PlaceOrderScreen(
+          sellerId: widget.farmerId,
+          sellerName: widget.farmerName,
+          productId: widget.productId,
+          productName: widget.productName,
+          productPrice: widget.productPrice,
+          productImage: widget.productImage,
+          deliveryAvailable: widget.deliveryAvailable,
+          pickupAvailable: widget.pickupAvailable,
+        ),
+      ),
+    );
+
+    if (!mounted || result != true) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Order submitted successfully.')),
     );
   }
 
@@ -404,8 +415,6 @@ class _MessageOrderScreenState extends State<MessageOrderScreen> {
     if (source == null) return;
 
     try {
-      final currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
-
       final XFile? picked = await _picker.pickImage(
         source: source,
         maxWidth: 800,
@@ -423,36 +432,11 @@ class _MessageOrderScreenState extends State<MessageOrderScreen> {
         return;
       }
 
-      final convId = await _messageService.startOrGetConversation(
-        otherUserId: widget.farmerId,
-        otherUserName: widget.farmerName,
-        productId: widget.productId,
-        productName: widget.productName,
-        productImageUrl: widget.productImage,
-      );
-      
       await _messageService.sendImageMessage(
-        conversationId: convId,
+        conversationId: _conversationId,
         otherUserId: widget.farmerId,
         imageUrl: imageUrl,
       );
-
-      // Update parent conversation document in 'conversations' collection
-      await FirebaseFirestore.instance.collection('conversations').doc(convId).set({
-        'participants': [currentUserId, widget.farmerId],
-        'participantNames': {
-          currentUserId: 'Buyer',
-          widget.farmerId: widget.farmerName,
-        },
-        'farmerId': widget.farmerId,
-        'farmerName': widget.farmerName,
-        'farmerImage': widget.productImage,
-        'lastMessage': '[Image sent]',
-        'lastMessageTime': FieldValue.serverTimestamp(),
-        'lastSenderId': currentUserId,
-        'unreadBuyerCount': 0,
-        'unreadFarmerCount': FieldValue.increment(1),
-      }, SetOptions(merge: true));
 
       _scrollToBottom();
     } catch (e) {
@@ -461,99 +445,6 @@ class _MessageOrderScreenState extends State<MessageOrderScreen> {
         SnackBar(content: Text('Failed to send image: $e')),
       );
     }
-  }
-
-  Future<void> _showOrderDialog() async {
-    final nameController = TextEditingController();
-    final contactController = TextEditingController();
-    final addressController = TextEditingController();
-    final canPickup = widget.pickupAvailable;
-    final canDelivery = widget.deliveryAvailable;
-    final canChooseDelivery = canPickup || canDelivery;
-    String deliveryMethod = canDelivery ? 'delivery' : (canPickup ? 'pickup' : '');
-    final formKey = GlobalKey<FormState>();
-
-    await showDialog<void>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Order Details'),
-          content: StatefulBuilder(
-            builder: (context, setState) {
-              return SingleChildScrollView(
-                child: Form(
-                  key: formKey,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextFormField(
-                        controller: nameController,
-                        decoration: const InputDecoration(labelText: 'Name'),
-                        validator: (value) => (value == null || value.trim().isEmpty) ? 'Enter your name' : null,
-                      ),
-                      const SizedBox(height: 10),
-                      TextFormField(
-                        controller: contactController,
-                        keyboardType: TextInputType.phone,
-                        decoration: const InputDecoration(labelText: 'Contact Number'),
-                        validator: (value) => (value == null || value.trim().isEmpty) ? 'Enter a contact number' : null,
-                      ),
-                      const SizedBox(height: 10),
-                      TextFormField(
-                        controller: addressController,
-                        decoration: const InputDecoration(labelText: 'Address'),
-                        validator: (value) => (value == null || value.trim().isEmpty) ? 'Enter address' : null,
-                      ),
-                      const SizedBox(height: 12),
-                      if (canChooseDelivery)
-                        Column(
-                          children: [
-                            if (canPickup)
-                              RadioListTile<String>(
-                                value: 'pickup',
-                                groupValue: deliveryMethod,
-                                title: const Text('Pick-up'),
-                                onChanged: (value) => setState(() => deliveryMethod = value ?? 'pickup'),
-                              ),
-                            if (canDelivery)
-                              RadioListTile<String>(
-                                value: 'delivery',
-                                groupValue: deliveryMethod,
-                                title: const Text('Delivery'),
-                                onChanged: (value) => setState(() => deliveryMethod = value ?? 'delivery'),
-                              ),
-                          ],
-                        )
-                      else
-                        const Text('No pickup/delivery option is available for this product.'),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: canChooseDelivery
-                  ? () {
-                      if (formKey.currentState?.validate() ?? false) {
-                        Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Order request sent for $deliveryMethod.')),
-                        );
-                      }
-                    }
-                  : null,
-              child: Text(canChooseDelivery ? 'Submit' : 'Unavailable'),
-            ),
-          ],
-        );
-      },
-    );
   }
 
   Future<void> _reportSeller() async {

@@ -42,10 +42,12 @@ dependencies:
   connectivity_plus: ^6.1.0
   firebase_messaging: ^16.5.0
   url_launcher: ^6.3.1
+ 
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_launcher_icons: ^0.13.1
 
 
   # The "flutter_lints" package below contains a set of recommended lints to
@@ -73,5 +75,10 @@ flutter:
     - assets/buyer.png
     - assets/farmer.png
     - assets/icon_foreground.png
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/logo.png"
 
     

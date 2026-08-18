@@ -1,23 +1,46 @@
-import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:agritrade/main.dart';
+import 'package:agritrade/services/farmer_revenue_service.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const AgriTradeApp());
+  group('Farmer revenue periods', () {
+    test('beginner farmers default to weekly revenue for the first 7 days', () {
+      final now = DateTime(2026, 8, 18, 12, 0, 0);
+      final registeredAt = now.subtract(const Duration(days: 2));
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+      expect(
+        FarmerRevenueService.resolveView(registeredAt: registeredAt, now: now),
+        FarmerRevenueView.weekly,
+      );
+    });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    test('farmers older than 7 days can use monthly revenue', () {
+      final now = DateTime(2026, 8, 18, 12, 0, 0);
+      final registeredAt = now.subtract(const Duration(days: 10));
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+      expect(
+        FarmerRevenueService.resolveView(registeredAt: registeredAt, now: now),
+        FarmerRevenueView.monthly,
+      );
+    });
+
+    test('completed orders are summed for the selected revenue range', () {
+      final now = DateTime(2026, 8, 18, 12, 0, 0);
+      final orders = [
+        {'status': 'completed', 'total': 150, 'createdAt': Timestamp.fromDate(now.subtract(const Duration(days: 1)))},
+        {'status': 'completed', 'total': 230, 'createdAt': Timestamp.fromDate(now.subtract(const Duration(days: 3)))},
+        {'status': 'pending', 'total': 999, 'createdAt': Timestamp.fromDate(now.subtract(const Duration(days: 2)))},
+      ];
+
+      expect(
+        FarmerRevenueService.totalRevenueForRange(
+          orders: orders,
+          view: FarmerRevenueView.weekly,
+          now: now,
+        ),
+        380,
+      );
+    });
   });
 }

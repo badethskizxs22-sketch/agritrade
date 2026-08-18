@@ -17,6 +17,12 @@ class _OrdersTabState extends State<OrdersTab> {
 
   final OrderService _orderService = OrderService();
 
+  Future<void> _refreshOrders() async {
+    await Future.delayed(const Duration(milliseconds: 700));
+    if (!mounted) return;
+    setState(() {});
+  }
+
   // 'pending' | 'confirmed' | 'completed'
   String _filter = 'pending';
 
@@ -124,6 +130,8 @@ class _OrdersTabState extends State<OrdersTab> {
               _filterTab('Confirmed', 'confirmed'),
               const SizedBox(width: 8),
               _filterTab('Completed', 'completed'),
+              const SizedBox(width: 8),
+              _filterTab('Rejected', 'rejected'),
             ],
           ),
         ),
@@ -143,10 +151,14 @@ class _OrdersTabState extends State<OrdersTab> {
                   .where((d) => (d.data()['status'] ?? 'pending').toString() == _filter)
                   .toList();
               if (docs.isEmpty) return _emptyState();
-              return ListView.builder(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 90),
-                itemCount: docs.length,
-                itemBuilder: (context, i) => _orderCard(docs[i]),
+              return RefreshIndicator(
+                color: _dark,
+                onRefresh: _refreshOrders,
+                child: ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 90),
+                  itemCount: docs.length,
+                  itemBuilder: (context, i) => _orderCard(docs[i]),
+                ),
               );
             },
           ),

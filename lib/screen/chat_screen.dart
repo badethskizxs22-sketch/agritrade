@@ -112,39 +112,54 @@ class _ChatScreenState extends State<ChatScreen> {
           children: [
             if (_hasProductPreview) _productPreview(),
             Expanded(
-              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: _messageService.messagesStream(widget.conversationId),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator(color: _dark));
-                  }
-                  if (snapshot.hasError) {
-                    return const Center(child: Text('Something went wrong loading messages.'));
-                  }
-                  final docs = snapshot.data?.docs ?? [];
-                  if (docs.isEmpty) {
-                    return Center(
-                      child: Text(
-                        'Say hello to ${widget.otherUserName} 👋',
-                        style: TextStyle(color: Colors.grey[500], fontSize: 14),
-                      ),
-                    );
-                  }
-                  return ListView.builder(
-                    reverse: true,
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                    itemCount: docs.length,
-                    itemBuilder: (context, i) {
-                      final data = docs[i].data();
-                      final isMe = data['senderId'] == _myUid;
-                      final text = data['text']?.toString() ?? '';
-                      final ts = data['createdAt'] as Timestamp?;
-                      return _messageBubble(text, isMe, ts?.toDate());
-                    },
-                  );
+  child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+    stream: _messageService.messagesStream(widget.conversationId),
+    builder: (context, snapshot) {
+      if (snapshot.connectionState == ConnectionState.waiting) {
+        return const Center(child: CircularProgressIndicator(color: _dark));
+      }
+      if (snapshot.hasError) {
+        return const Center(child: Text('Something went wrong loading messages.'));
+      }
+      
+      final docs = snapshot.data?.docs ?? [];
+      
+      return RefreshIndicator(
+        color: _dark,
+        onRefresh: () async {
+          await Future.delayed(const Duration(milliseconds: 700));
+          if (mounted) setState(() {});
+        },
+        child: docs.isEmpty
+            ? SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      'Say hello to ${widget.otherUserName} 👋',
+                      style: TextStyle(color: Colors.grey[500], fontSize: 14),
+                    ),
+                  ),
+                ),
+              )
+            : ListView.builder(
+                reverse: true,
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                itemCount: docs.length,
+                itemBuilder: (context, i) {
+                  final data = docs[i].data();
+                  final isMe = data['senderId'] == _myUid;
+                  final text = data['text']?.toString() ?? '';
+                  final ts = data['createdAt'] as Timestamp?;
+                  return _messageBubble(text, isMe, ts?.toDate());
                 },
               ),
-            ),
+      );
+    },
+  ),
+),
             _composer(),
           ],
         ),

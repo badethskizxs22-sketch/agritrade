@@ -6,9 +6,10 @@ import '../services/message_service.dart';
 import '../widgets/agritrade_text.dart';
 import 'add_product_screen.dart';
 import 'market_tab.dart';
-import 'farmer_chat_list_screen.dart';
+import 'chat_list_screen.dart';
 import 'farmer_orders_tab.dart';
 import 'farmer_profile_tab.dart';
+import 'notifications_screen.dart';
 
 class FarmerHomeScreen extends StatefulWidget {
   const FarmerHomeScreen({super.key});
@@ -41,6 +42,13 @@ class _FarmerHomeScreenState extends State<FarmerHomeScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const AddProductScreen()),
+    );
+  }
+
+  void _openNotifications() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const NotificationsScreen()),
     );
   }
 
@@ -105,45 +113,6 @@ class _FarmerHomeScreenState extends State<FarmerHomeScreen> {
     );
   }
 
-  // ---- Notification bell — badge shows unread messages across all conversations ----
-  Widget _notificationBell() {
-    final myUid = FirebaseAuth.instance.currentUser?.uid;
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: _messageService.myConversationsStream(),
-      builder: (context, snapshot) {
-        int unread = 0;
-        for (final doc in snapshot.data?.docs ?? []) {
-          final map = Map<String, dynamic>.from(doc.data()['unreadCount'] ?? {});
-          unread += ((map[myUid] ?? 0) as num).toInt();
-        }
-        return IconButton(
-          onPressed: () => setState(() => _selectedIndex = 1), // Messages tab
-          icon: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              const Icon(Icons.notifications_outlined, color: _dark, size: 24),
-              if (unread > 0)
-                Positioned(
-                  right: -3,
-                  top: -3,
-                  child: Container(
-                    padding: const EdgeInsets.all(3),
-                    decoration: const BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle),
-                    constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-                    child: Text(
-                      unread > 9 ? '9+' : '$unread',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -191,7 +160,10 @@ class _FarmerHomeScreenState extends State<FarmerHomeScreen> {
               onPressed: () => _showLanguagePicker(context),
               icon: const Icon(Icons.language, color: _dark, size: 22),
             ),
-            _notificationBell(),
+            IconButton(
+              onPressed: _openNotifications,
+              icon: const Icon(Icons.notifications_none_rounded, color: _dark, size: 22),
+            ),
             const SizedBox(width: 8),
           ],
         ),
@@ -225,7 +197,7 @@ class _FarmerHomeScreenState extends State<FarmerHomeScreen> {
             const ChatListScreen(),
             const OrdersTab(),
             const ProfileTab(),
-          ],
+          ], 
         ),
       ),
     );

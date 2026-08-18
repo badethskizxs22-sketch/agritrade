@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../services/message_service.dart';
 import 'chat_screen.dart';
+import 'message_order_screen.dart';
 
 /// The "Messages" tab: a live list of the current user's conversations,
 /// sorted by most recent activity — same idea as a Messenger inbox.
@@ -20,6 +21,12 @@ class _ChatListScreenState extends State<ChatListScreen> {
   final MessageService _messageService = MessageService();
   final TextEditingController _searchController = TextEditingController();
   String _query = '';
+
+  Future<void> _refreshData() async {
+    await Future.delayed(const Duration(milliseconds: 700));
+    if (!mounted) return;
+    setState(() {});
+  }
 
   @override
   void initState() {
@@ -53,7 +60,16 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 return const Center(child: Text('Something went wrong loading messages.'));
               }
 
-              var docs = snapshot.data?.docs ?? [];
+              var docs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
+                snapshot.data?.docs ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[],
+              )
+                ..sort((a, b) {
+                  final at = a.data()['lastMessageTime'] as Timestamp?;
+                  final bt = b.data()['lastMessageTime'] as Timestamp?;
+                  final ams = at?.millisecondsSinceEpoch ?? 0;
+                  final bms = bt?.millisecondsSinceEpoch ?? 0;
+                  return bms.compareTo(ams);
+                });
 
               if (_query.isNotEmpty) {
                 docs = docs.where((doc) {
@@ -74,15 +90,19 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 return _query.isNotEmpty ? _noResultsState() : _emptyState();
               }
 
-              return ListView.separated(
-                padding: const EdgeInsets.fromLTRB(12, 4, 12, 90),
-                itemCount: docs.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 4),
-                itemBuilder: (context, i) {
-                  final doc = docs[i];
-                  final data = doc.data();
-                  return _conversationTile(context, doc.id, data, myUid);
-                },
+              return RefreshIndicator(
+                color: _dark,
+                onRefresh: _refreshData,
+                child: ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 90),
+                  itemCount: docs.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 4),
+                  itemBuilder: (context, i) {
+                    final doc = docs[i];
+                    final data = doc.data();
+                    return _conversationTile(context, doc.id, data, myUid);
+                  },
+                ),
               );
             },
           ),
@@ -155,7 +175,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
     final productName = data['productName']?.toString();
 
     final unreadMap = Map<String, dynamic>.from(data['unreadCount'] ?? {});
-    final unread = (unreadMap[myUid] ?? 0) as int;
+    final unread = ((unreadMap[myUid] ?? 0) as num).toInt();
 
     final timestamp = data['lastMessageTime'] as Timestamp?;
     final timeLabel = _formatTime(timestamp?.toDate());
@@ -165,9 +185,31 @@ class _ChatListScreenState extends State<ChatListScreen> {
         ? 'Say hello 👋'
         : '${youSent ? 'You: ' : ''}$lastMessage';
 
+    final farmerId = data['farmerId']?.toString() ?? '';
+    final isBuyerOrderConversation = farmerId.isNotEmpty && farmerId == otherUid;
+
     return InkWell(
       borderRadius: BorderRadius.circular(16),
       onTap: () {
+        if (isBuyerOrderConversation) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => MessageOrderScreen(
+                conversationId: conversationId,
+                farmerId: otherUid,
+                productId: data['productId']?.toString() ?? '',
+                farmerName: otherName,
+                productName: data['productName']?.toString() ?? 'Product',
+                productPrice: data['productPrice']?.toString() ?? 'Price unavailable',
+                productImage: data['productImageUrl']?.toString() ?? '',
+                deliveryAvailable: data['deliveryAvailable'] == true,
+                pickupAvailable: data['pickupOnly'] == true,
+              ),
+            ),
+          );
+          return;
+        }
         Navigator.push(
           context,
           MaterialPageRoute(

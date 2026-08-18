@@ -123,7 +123,7 @@ class RoleSelectionScreen extends StatelessWidget {
                     imagePath: 'assets/buyer.png',
                     fallbackIcon: Icons.shopping_cart,
                     title: 'Continue as Buyer',
-                    subtitle: 'Source fresh goods straight from farms',
+                    subtitle: 'Source fresh goods',
                     onTap: () {
                       Navigator.push(
                         context,

@@ -24,6 +24,12 @@ class _BuyerExploreScreenState extends State<BuyerExploreScreen> {
 
   final ProductService _productService = ProductService();
 
+  Future<void> _refreshProducts() async {
+    await Future.delayed(const Duration(milliseconds: 700));
+    if (!mounted) return;
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -133,16 +139,20 @@ class _BuyerExploreScreenState extends State<BuyerExploreScreen> {
           );
         }
 
-        return GridView.builder(
-          padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-          itemCount: docs.length,
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 0.68,
+        return RefreshIndicator(
+          color: _dark,
+          onRefresh: _refreshProducts,
+          child: GridView.builder(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+            itemCount: docs.length,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              childAspectRatio: 0.68,
+            ),
+            itemBuilder: (context, index) => _buildProductCard(docs[index]),
           ),
-          itemBuilder: (context, index) => _buildProductCard(docs[index]),
         );
       },
     );
